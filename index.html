@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI 번호 연구소 - 관리자</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, sans-serif; background: #f5f5f5; }
+    .header { background: #0064FF; color: white; padding: 20px; text-align: center; }
+    .container { max-width: 800px; margin: 20px auto; padding: 0 16px; }
+    .card { background: white; border-radius: 12px; padding: 20px; margin-bottom: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+    .card h2 { font-size: 18px; margin-bottom: 16px; color: #333; }
+    input, select { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 8px; margin-bottom: 8px; font-size: 14px; }
+    button { width: 100%; padding: 12px; background: #0064FF; color: white; border: none; border-radius: 8px; font-size: 16px; cursor: pointer; margin-bottom: 8px; }
+    button.danger { background: #FF3B30; }
+    button.orange { background: #FF6B00; }
+    button.green { background: #00C851; }
+    .result { background: #f5f5f5; border-radius: 8px; padding: 12px; margin-top: 8px; font-size: 13px; white-space: pre-wrap; max-height: 300px; overflow-y: auto; }
+    .login-screen { max-width: 400px; margin: 100px auto; padding: 0 16px; }
+    .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .stat-box { background: #f5f5f5; border-radius: 8px; padding: 12px; text-align: center; }
+    .stat-box .num { font-size: 24px; font-weight: bold; color: #0064FF; }
+    .stat-box .label { font-size: 12px; color: #888; }
+  </style>
+</head>
+<body>
+
+<!-- 로그인 화면 -->
+<div id="loginScreen" class="login-screen">
+  <div class="card">
+    <h2>🔐 관리자 로그인</h2>
+    <input type="password" id="adminPassword" placeholder="관리자 비밀번호" />
+    <button onclick="login()">로그인</button>
+  </div>
+</div>
+
+<!-- 어드민 화면 -->
+<div id="adminScreen" style="display:none">
+  <div class="header">
+    <h1>AI 번호 연구소 관리자</h1>
+  </div>
+
+  <div class="container">
+
+    <!-- 통계 -->
+    <div class="card">
+      <h2>📊 현황</h2>
+      <div class="stats-grid">
+        <div class="stat-box"><div class="num" id="totalSets">-</div><div class="label">총 생성 세트</div></div>
+        <div class="stat-box"><div class="num" id="totalRounds">-</div><div class="label">회차 데이터</div></div>
+        <div class="stat-box"><div class="num" id="match3Count">-</div><div class="label">5등 적중</div></div>
+        <div class="stat-box"><div class="num" id="match4Count">-</div><div class="label">4등 적중</div></div>
+      </div>
+      <button onclick="loadStats()" style="margin-top:12px">🔄 새로고침</button>
+    </div>
+
+    <!-- 당첨번호 입력 -->
+    <div class="card">
+      <h2>🎱 당첨번호 입력</h2>
+      <input type="number" id="roundNum" placeholder="회차 번호 (예: 1129)" />
+      <div style="display:grid; grid-template-columns: repeat(6,1fr); gap:4px; margin-bottom:8px">
+        <input type="number" id="n1" placeholder="1번" min="1" max="45" />
+        <input type="number" id="n2" placeholder="2번" min="1" max="45" />
+        <input type="number" id="n3" placeholder="3번" min="1" max="45" />
+        <input type="number" id="n4" placeholder="4번" min="1" max="45" />
+        <input type="number" id="n5" placeholder="5번" min="1" max="45" />
+        <input type="number" id="n6" placeholder="6번" min="1" max="45" />
+      </div>
+      <input type="number" id="bonus" placeholder="보너스 번호" min="1" max="45" />
+      <button class="green" onclick="saveLottoResult()">💾 당첨번호 저장</button>
+      <div class="result" id="resultMsg"></div>
+    </div>
+
+    <!-- 번호 대량 생성 -->
+    <div class="card">
+      <h2>⚡ 번호 대량 생성</h2>
+      <input type="number" id="generateCount" placeholder="생성 횟수 (예: 100)" value="10" />
+      <button class="orange" onclick="bulkGenerate()">🚀 대량 생성 시작</button>
+      <div class="result" id="generateResult"></div>
+    </div>
+
+    <!-- 당첨 매칭 -->
+    <div class="card">
+      <h2>🎯 당첨 매칭 실행</h2>
+      <input type="number" id="matchRound" placeholder="매칭할 회차 번호" />
+      <button class="orange" onclick="runMatching()">🔍 매칭 실행</button>
+      <div class="result" id="matchResult"></div>
+    </div>
+
+  </div>
+</div>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+  import { getFirestore, collection, getDocs, addDoc, doc, setDoc, getDoc, serverTimestamp, query, orderBy } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyDmRLuI6YNlO1jnnqalpFudVh7tEOuwSYI",
+    authDomain: "ai-lotto-pick.firebaseapp.com",
+    projectId: "ai-lotto-pick",
+    storageBucket: "ai-lotto-pick.firebasestorage.app",
+    messagingSenderId: "1029622367587",
+    appId: "1:1029622367587:web:c2eb2658a4b2858faaff56"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+
+  const ADMIN_PASSWORD = "lotto2024admin!";
+
+  window.login = function() {
+    const pw = document.getElementById("adminPassword").value;
+    if (pw === ADMIN_PASSWORD) {
+      document.getElementById("loginScreen").style.display = "none";
+      document.getElementById("adminScreen").style.display = "block";
+      loadStats();
+    } else {
+      alert("비밀번호가 틀렸습니다!");
+    }
+  };
+
+  window.loadStats = async function() {
+    try {
+      const genSnapshot = await getDocs(collection(db, "generated_numbers"));
+      document.getElementById("totalSets").textContent = genSnapshot.size * 5;
+
+      const lottoSnapshot = await getDocs(collection(db, "lotto_results"));
+      document.getElementById("totalRounds").textContent = lottoSnapshot.size;
+
+      const overallSnapshot = await getDocs(collection(db, "stats_overall"));
+      let match3 = 0, match4 = 0;
+      overallSnapshot.forEach((doc) => {
+        match3 += doc.data().match3 || 0;
+        match4 += doc.data().match4 || 0;
+      });
+      document.getElementById("match3Count").textContent = match3;
+      document.getElementById("match4Count").textContent = match4;
+    } catch (e) {
+      alert("통계 로드 실패: " + e);
+    }
+  };
+
+  window.saveLottoResult = async function() {
+    const round = parseInt(document.getElementById("roundNum").value);
+    const numbers = [
+      parseInt(document.getElementById("n1").value),
+      parseInt(document.getElementById("n2").value),
+      parseInt(document.getElementById("n3").value),
+      parseInt(document.getElementById("n4").value),
+      parseInt(document.getElementById("n5").value),
+      parseInt(document.getElementById("n6").value),
+    ];
+    const bonus = parseInt(document.getElementById("bonus").value);
+
+    if (!round || numbers.some(isNaN) || isNaN(bonus)) {
+      alert("모든 번호를 입력해주세요!");
+      return;
+    }
+
+    try {
+      await setDoc(doc(db, "lotto_results", String(round)), {
+        round,
+        numbers,
+        bonus,
+        n1: numbers[0], n2: numbers[1], n3: numbers[2],
+        n4: numbers[3], n5: numbers[4], n6: numbers[5],
+        createdAt: serverTimestamp()
+      });
+      document.getElementById("resultMsg").textContent = `✅ ${round}회 당첨번호 저장 완료!\n번호: ${numbers.join(", ")} + 보너스: ${bonus}`;
+    } catch (e) {
+      document.getElementById("resultMsg").textContent = "❌ 저장 실패: " + e;
+    }
+  };
+
+  window.bulkGenerate = async function() {
+    const count = parseInt(document.getElementById("generateCount").value) || 10;
+    const resultEl = document.getElementById("generateResult");
+    resultEl.textContent = "생성 중...";
+
+    try {
+      // 전이 행렬 생성
+      const snapshot = await getDocs(collection(db, "lotto_results"));
+      const matrix = Array.from({ length: 46 }, () => Array(46).fill(0));
+      
+      snapshot.forEach((doc) => {
+        const data = doc.data();
+        const nums = data.numbers || [data.n1, data.n2, data.n3, data.n4, data.n5, data.n6];
+        for (let i = 0; i < nums.length; i++) {
+          for (let j = 0; j < nums.length; j++) {
+            if (i !== j) matrix[nums[i]][nums[j]]++;
+          }
+        }
+      });
+
+      // N32 추출
+      const scores = [];
+      for (let b = 1; b <= 45; b++) {
+        let score = 0;
+        for (let a = 1; a <= 45; a++) score += matrix[a][b];
+        scores.push({ num: b, score });
+      }
+      scores.sort((a, b) => b.score - a.score);
+      const n32 = scores.slice(0, 32).map(s => s.num);
+
+      // 대량 생성
+      let saved = 0;
+      for (let i = 0; i < count; i++) {
+        const sets = {};
+        for (let s = 1; s <= 5; s++) {
+          let attempts = 0;
+          while (attempts < 1000) {
+            const shuffled = [...n32].sort(() => Math.random() - 0.5);
+            const set = shuffled.slice(0, 6).sort((a, b) => a - b);
+            const odd = set.filter(n => n % 2 !== 0).length;
+            const sum = set.reduce((a, b) => a + b, 0);
+            if (odd >= 2 && odd <= 4 && sum >= 110 && sum <= 180) {
+              sets[`set${s}`] = set;
+              break;
+            }
+            attempts++;
+          }
+          if (!sets[`set${s}`]) {
+            sets[`set${s}`] = [...n32].sort(() => Math.random() - 0.5).slice(0, 6).sort((a, b) => a - b);
+          }
+        }
+        await addDoc(collection(db, "generated_numbers"), {
+          ...sets,
+          totalSets: 5,
+          createdAt: serverTimestamp(),
+          source: "admin_bulk"
+        });
+        saved++;
+        if (saved % 10 === 0) {
+          resultEl.textContent = `생성 중... ${saved}/${count}`;
+        }
+      }
+      resultEl.textContent = `✅ ${count}회 대량 생성 완료! (총 ${count * 5}세트)`;
+      loadStats();
+    } catch (e) {
+      resultEl.textContent = "❌ 생성 실패: " + e;
+    }
+  };
+
+  window.runMatching = async function() {
+    const round = parseInt(document.getElementById("matchRound").value);
+    const resultEl = document.getElementById("matchResult");
+    
+    if (!round) {
+      alert("회차 번호를 입력해주세요!");
+      return;
+    }
+
+    resultEl.textContent = "매칭 중...";
+
+    try {
+      const lottoDoc = await getDoc(doc(db, "lotto_results", String(round)));
+      if (!lottoDoc.exists()) {
+        resultEl.textContent = "❌ 해당 회차 당첨번호가 없습니다!";
+        return;
+      }
+
+      const winningNums = new Set(lottoDoc.data().numbers);
+      const bonus = lottoDoc.data().bonus;
+
+      const genSnapshot = await getDocs(collection(db, "generated_numbers"));
+      let match3 = 0, match4 = 0, match5 = 0, match5bonus = 0, match6 = 0, total = 0;
+
+      genSnapshot.forEach((doc) => {
+        const data = doc.data();
+        for (let s = 1; s <= 5; s++) {
+          const set = data[`set${s}`];
+          if (!set) continue;
+          total++;
+          const hits = set.filter(n => winningNums.has(n)).length;
+          const hasBonus = set.includes(bonus);
+          if (hits === 6) match6++;
+          else if (hits === 5 && hasBonus) match5bonus++;
+          else if (hits === 5) match5++;
+          else if (hits === 4) match4++;
+          else if (hits === 3) match3++;
+        }
+      });
+
+      await setDoc(doc(db, "stats_overall", String(round)), {
+        round, total, match3, match4, match5, match5bonus, match6,
+        updatedAt: serverTimestamp()
+      });
+
+      resultEl.textContent = `✅ ${round}회 매칭 완료!\n총 세트: ${total}\n1등: ${match6}\n2등: ${match5bonus}\n3등: ${match5}\n4등: ${match4}\n5등: ${match3}`;
+      loadStats();
+    } catch (e) {
+      resultEl.textContent = "❌ 매칭 실패: " + e;
+    }
+  };
+</script>
+
+</body>
+</html>
